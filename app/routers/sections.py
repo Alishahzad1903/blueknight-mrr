@@ -2,9 +2,11 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Header, Response
 from app.auth.deps import get_current_user, CurrentUser
 from app.db import get_session
-from app.services import section_service, history_service
+from app.services import section_service, history_service, ai_rewrite_service
 from app.services.section_service import NoAccessError, NotEditorError, StaleVersion, EditNotFound
-from app.schemas.sections import PatchSectionRequest
+from app.services.ai_rewrite_service import LLMError
+from app.schemas.sections import PatchSectionRequest, AIRewriteRequest
+from app.dependencies import get_llm_client
 
 router = APIRouter(tags=["sections"])
 
@@ -113,4 +115,31 @@ async def revert_section(
         raise HTTPException(404, "edit not found")
     except StaleVersion:
         raise HTTPException(409, "concurrent modification, retry")
+    return {"version": result["new_version"]}
+
+
+@router.post("/reports/{report_id}/sections/{section_key}/ai-rewrite")
+async def ai_rewrite(
+    report_id: int,
+    section_key: str,
+    body: AIRewriteRequest,
+    user: CurrentUser = Depends(get_current_user),
+    session=Depends(get_session),
+    llm=Depends(get_llm_client),
+):
+    try:
+        result = await ai_rewrite_service.ai_rewrite(
+            session,
+            report_id=report_id,
+            section_key=section_key,
+            instruction=body.instruction,
+            llm_client=llm,
+            current_user=user,
+        )
+    except NotEditorError:
+        raise HTTPException(403, "not an editor")
+    except LLMError:
+        raise HTTPException(502, "LLM provider error")
+    if result is None:
+        raise HTTPException(404, "section not found")
     return {"version": result["new_version"]}
