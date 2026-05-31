@@ -11,6 +11,7 @@ from app.services.ai_rewrite_service import LLMError
 from app.schemas.sections import PatchSectionRequest, AIRewriteRequest
 from app.dependencies import get_llm_client
 from app.repository import idempotency_repo
+from app.services import rate_limit
 
 router = APIRouter(tags=["sections"])
 
@@ -151,6 +152,14 @@ async def ai_rewrite(
             return JSONResponse(
                 content=cached["response_body"], status_code=cached["status_code"]
             )
+
+    retry_after = rate_limit.check_and_record(user.user_id)
+    if retry_after is not None:
+        raise HTTPException(
+            429,
+            detail="rate limit exceeded",
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
 
     try:
         result = await ai_rewrite_service.ai_rewrite(
