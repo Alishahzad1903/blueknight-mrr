@@ -28,6 +28,7 @@ env/
 
 # Environment files
 .env
+.env.example
 *.env.local
 
 # Testing
