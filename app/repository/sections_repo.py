@@ -26,9 +26,9 @@ edit AS (
     SELECT :rid, :key, b.version, u.version,
            b.content, CAST(:new_content AS jsonb), :uid, CAST(:source AS edit_source)
     FROM before b, updated u
-    RETURNING id, version_after
+    RETURNING id, version_after, content_after
 )
-SELECT e.id AS edit_id, e.version_after AS new_version FROM edit e
+SELECT e.id AS edit_id, e.version_after AS new_version, e.content_after AS content FROM edit e
 """)
 
 
@@ -70,4 +70,8 @@ async def write_section(
 
     if row is None:
         return None
-    return {"edit_id": row["edit_id"], "new_version": row["new_version"]}
+    return {
+        "edit_id": row["edit_id"],
+        "new_version": row["new_version"],
+        "content": row["content"],
+    }

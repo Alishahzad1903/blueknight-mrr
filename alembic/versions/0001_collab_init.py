@@ -18,18 +18,55 @@ def upgrade() -> None:
         CREATE TABLE IF NOT EXISTS users (
             id      BIGSERIAL PRIMARY KEY,
             org_id  BIGINT NOT NULL,
-            email   TEXT
+            email   TEXT UNIQUE NOT NULL
         )
     """)
 
     op.execute("""
         CREATE TABLE IF NOT EXISTS market_research_reports (
-            id          BIGSERIAL PRIMARY KEY,
-            user_id     BIGINT NOT NULL REFERENCES users(id),
-            title       TEXT NOT NULL DEFAULT '',
-            sections    JSONB NOT NULL DEFAULT '{}',
-            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+            id            BIGSERIAL PRIMARY KEY,
+            user_id       BIGINT NOT NULL,
+            company_name  TEXT,
+            company_url   TEXT,
+            sections      JSONB NOT NULL,
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
         )
+    """)
+
+    # Normalize parent schemas when tables already exist from older setups.
+    op.execute("""
+        ALTER TABLE users
+        ALTER COLUMN email SET NOT NULL
+    """)
+    op.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS users_email_uniq ON users(email)
+    """)
+
+    op.execute("""
+        ALTER TABLE market_research_reports
+        ADD COLUMN IF NOT EXISTS company_name TEXT
+    """)
+    op.execute("""
+        ALTER TABLE market_research_reports
+        ADD COLUMN IF NOT EXISTS company_url TEXT
+    """)
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'market_research_reports'
+                  AND column_name = 'title'
+            ) THEN
+                EXECUTE '
+                    UPDATE market_research_reports
+                    SET company_name = COALESCE(company_name, title)
+                    WHERE company_name IS NULL
+                ';
+            END IF;
+        END
+        $$
     """)
 
     # --- enum types (idempotent) ---
@@ -51,7 +88,7 @@ def upgrade() -> None:
     op.execute("""
         CREATE TABLE IF NOT EXISTS report_sections (
             id                  BIGSERIAL PRIMARY KEY,
-            report_id           BIGINT NOT NULL REFERENCES market_research_reports(id),
+            report_id           BIGINT NOT NULL REFERENCES market_research_reports(id) ON DELETE CASCADE,
             section_key         TEXT NOT NULL,
             content             JSONB NOT NULL DEFAULT '{}',
             version             INT NOT NULL DEFAULT 1,
@@ -65,7 +102,7 @@ def upgrade() -> None:
     op.execute("""
         CREATE TABLE IF NOT EXISTS report_section_edits (
             id              BIGSERIAL PRIMARY KEY,
-            report_id       BIGINT NOT NULL REFERENCES market_research_reports(id),
+            report_id       BIGINT NOT NULL REFERENCES market_research_reports(id) ON DELETE CASCADE,
             section_key     TEXT NOT NULL,
             version_before  INT NOT NULL,
             version_after   INT NOT NULL,
@@ -81,7 +118,7 @@ def upgrade() -> None:
     op.execute("""
         CREATE TABLE IF NOT EXISTS report_shares (
             id                  BIGSERIAL PRIMARY KEY,
-            report_id           BIGINT NOT NULL REFERENCES market_research_reports(id),
+            report_id           BIGINT NOT NULL REFERENCES market_research_reports(id) ON DELETE CASCADE,
             target_user_id      BIGINT NOT NULL REFERENCES users(id),
             permission          share_permission NOT NULL,
             granted_by_user_id  BIGINT NOT NULL REFERENCES users(id),

@@ -28,7 +28,7 @@ async def get_report_access(session: AsyncSession, report_id: int, user_id: int)
 
 async def get_report_with_sections(session: AsyncSession, report_id: int) -> dict:
     report_sql = text("""
-        SELECT id, user_id, title, created_at
+        SELECT id, user_id, company_name, company_url, created_at
         FROM market_research_reports
         WHERE id = :rid
     """)
@@ -42,9 +42,10 @@ async def get_report_with_sections(session: AsyncSession, report_id: int) -> dic
     section_rows = (await session.execute(sections_sql, {"rid": report_id})).mappings().all()
 
     return {
-        "id": report_row["id"],
+        "report_id": report_row["id"],
         "user_id": report_row["user_id"],
-        "title": report_row["title"],
+        "company_name": report_row["company_name"],
+        "company_url": report_row["company_url"],
         "created_at": report_row["created_at"].isoformat(),
         "sections": [dict(r) for r in section_rows],
     }

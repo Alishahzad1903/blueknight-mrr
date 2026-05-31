@@ -34,11 +34,12 @@ def main() -> None:
 
     # report owned by user 1 with 3 JSONB sections
     cur.execute("""
-        INSERT INTO market_research_reports (id, user_id, title, sections)
+        INSERT INTO market_research_reports (id, user_id, company_name, company_url, sections)
         VALUES (
             1,
             1,
-            'ACME Market Analysis 2026',
+            'ACME Corp',
+            'https://acme.example.com',
             '{
                 "executive_summary": {"text": "ACME shows strong momentum in Q1 2026."},
                 "market_size":        {"text": "The total addressable market is $12B."},
