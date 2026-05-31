@@ -1,5 +1,8 @@
+import hashlib
+import json
 import re
 from fastapi import APIRouter, Depends, HTTPException, Header, Response
+from fastapi.responses import JSONResponse
 from app.auth.deps import get_current_user, CurrentUser
 from app.db import get_session
 from app.services import section_service, history_service, ai_rewrite_service
@@ -7,6 +10,8 @@ from app.services.section_service import NoAccessError, NotEditorError, StaleVer
 from app.services.ai_rewrite_service import LLMError
 from app.schemas.sections import PatchSectionRequest, AIRewriteRequest
 from app.dependencies import get_llm_client
+from app.repository import idempotency_repo
+from app.services import rate_limit
 
 router = APIRouter(tags=["sections"])
 
@@ -118,6 +123,11 @@ async def revert_section(
     return {"version": result["new_version"]}
 
 
+def _hash(method: str, path: str, body: dict) -> str:
+    raw = f"{method}:{path}:{json.dumps(body, sort_keys=True)}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
 @router.post("/reports/{report_id}/sections/{section_key}/ai-rewrite")
 async def ai_rewrite(
     report_id: int,
@@ -126,7 +136,31 @@ async def ai_rewrite(
     user: CurrentUser = Depends(get_current_user),
     session=Depends(get_session),
     llm=Depends(get_llm_client),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    req_hash = _hash(
+        "POST",
+        f"/reports/{report_id}/sections/{section_key}/ai-rewrite",
+        body.model_dump(),
+    )
+
+    if idempotency_key:
+        cached = await idempotency_repo.get_cached(session, idempotency_key, user.user_id)
+        if cached:
+            if cached["request_hash"] != req_hash:
+                raise HTTPException(422, "idempotency key reused with different body")
+            return JSONResponse(
+                content=cached["response_body"], status_code=cached["status_code"]
+            )
+
+    retry_after = rate_limit.check_and_record(user.user_id)
+    if retry_after is not None:
+        raise HTTPException(
+            429,
+            detail="rate limit exceeded",
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
+
     try:
         result = await ai_rewrite_service.ai_rewrite(
             session,
@@ -142,4 +176,10 @@ async def ai_rewrite(
         raise HTTPException(502, "LLM provider error")
     if result is None:
         raise HTTPException(404, "section not found")
-    return {"version": result["new_version"]}
+
+    response_body = {"version": result["new_version"]}
+    if idempotency_key:
+        await idempotency_repo.store(
+            session, idempotency_key, user.user_id, req_hash, 200, response_body
+        )
+    return response_body
