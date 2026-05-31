@@ -120,7 +120,7 @@ async def revert_section(
         raise HTTPException(404, "edit not found")
     except StaleVersion:
         raise HTTPException(409, "concurrent modification, retry")
-    return {"version": result["new_version"]}
+    return {"version": result["new_version"], "content": result["content"]}
 
 
 def _hash(method: str, path: str, body: dict) -> str:
@@ -177,7 +177,7 @@ async def ai_rewrite(
     if result is None:
         raise HTTPException(404, "section not found")
 
-    response_body = {"version": result["new_version"]}
+    response_body = {"version": result["new_version"], "content": result["content"]}
     if idempotency_key:
         await idempotency_repo.store(
             session, idempotency_key, user.user_id, req_hash, 200, response_body
