@@ -1,5 +1,6 @@
 import base64
 import json
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
@@ -28,14 +29,15 @@ async def list_edits(
             FROM report_section_edits
             WHERE report_id = :rid
               AND section_key = :key
-              AND (ts, id) < (:cts::timestamptz, :cid)
+              AND (ts, id) < (CAST(:cts AS timestamptz), :cid)
             ORDER BY ts DESC, id DESC
             LIMIT :lim
         """)
+        cts = datetime.fromisoformat(c["ts"]).replace(tzinfo=timezone.utc)
         rows = (
             await session.execute(
                 sql,
-                {"rid": report_id, "key": section_key, "cts": c["ts"], "cid": c["id"], "lim": limit + 1},
+                {"rid": report_id, "key": section_key, "cts": cts, "cid": c["id"], "lim": limit + 1},
             )
         ).mappings().all()
     else:
